@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Word Search Puzzle Grid Generator</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .cell { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; user-select: none; font-size: 14px; border: 1px solid #e5e7eb; }
+  .cell.selected { background: #bfdbfe; }
+  .cell.found { background: #bbf7d0; }
+  .cell.highlight { background: #fef08a; }
+  @media print { .no-print { display: none; } body { background: white; } }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen p-4">
+<div class="max-w-6xl mx-auto">
+  <h1 class="text-3xl font-bold text-center text-blue-700 mb-6">Word Search Puzzle Generator</h1>
+  <div class="flex flex-col lg:flex-row gap-6">
+    <div class="no-print lg:w-64 flex-shrink-0">
+      <div class="bg-white rounded-xl shadow p-4 mb-4">
+        <label class="block font-semibold mb-2">Enter Words (one per line, max 15):</label>
+        <textarea id="wordInput" class="w-full border rounded p-2 h-40 font-mono text-sm" placeholder="APPLE&#10;BANANA&#10;CHERRY"></textarea>
+        <div class="mt-2 flex gap-2">
+          <label class="font-semibold">Grid Size:</label>
+          <select id="gridSize" class="border rounded px-2">
+            <option value="15">15x15</option>
+            <option value="20" selected>20x20</option>
+            <option value="25">25x25</option>
+          </select>
+        </div>
+        <button onclick="generatePuzzle()" class="mt-3 w-full bg-blue-600 text-white rounded-lg py-2 font-bold hover:bg-blue-700">Generate Puzzle</button>
+        <button onclick="window.print()" class="mt-2 w-full bg-gray-600 text-white rounded-lg py-2 font-bold hover:bg-gray-700">Print</button>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4">
+        <div class="flex justify-between items-center mb-3">
+          <span class="font-bold text-lg">Word List</span>
+          <span id="timer" class="text-blue-600 font-mono font-bold text-lg">00:00</span>
+        </div>
+        <div id="wordList" class="space-y-1"></div>
+        <div id="congratsMsg" class="hidden mt-3 text-green-600 font-bold text-center text-lg">🎉 Puzzle Complete!</div>
+      </div>
+    </div>
+    <div class="flex-1 overflow-auto">
+      <div id="grid" class="inline-block bg-white rounded-xl shadow p-3"></div>
+    </div>
+  </div>
+</div>
+<script>
+let grid = [], gridSize = 20, words = [], placedWords = [];
+let selecting = false, startCell = null, currentPath = [], foundCells = new Set();
+let timerInterval = null, seconds = 0, foundWords = new Set();
+let mouseDown = false;
+
+const DIRS = [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]];
+
+function generatePuzzle() {
+  const raw = document.getElementById('wordInput').value.trim().toUpperCase();
+  if (!raw) { alert('Please enter at least one word.'); return; }
+  words = [...new Set(raw.split('\n').map(w => w.trim().replace(/[^A-Z]/g,'')).filter(w => w.length >= 2))].slice(0,15);
+  if (!words.length) { alert('No valid words found.'); return; }
+  gridSize = parseInt(document.getElementById('gridSize').value);
+  initGrid();
+  placedWords = [];
+  for (const w of words) placeWord(w);
+  fillRandom();
+  renderGrid();
+  renderWordList();
+  foundCells = new Set();
+  foundWords = new Set();
+  clearInterval(timerInterval);
+  seconds = 0;
+  document.getElementById('congratsMsg').classList.add('hidden');
+  updateTimer();
+  timerInterval = setInterval(() => { seconds++; updateTimer(); }, 1000);
+}
+
+function initGrid() {
+  grid = Array.from({length: gridSize}, () => Array(gridSize).fill(''));
+}
+
+function placeWord(word) {
+  const shuffledDirs = [...DIRS].sort(() => Math.random()-0.5);
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const dir = shuffledDirs[attempt % 8];
+    const row = Math.floor(Math.random() * gridSize);
+    const col = Math.floor(Math.random() * gridSize);
+    if (canPlace(word, row, col, dir)) {
+      doPlace(word, row, col, dir);
+      return true;
+    }
+  }
+  return false;
+}
+
+function canPlace(word, r, c, [dr, dc]) {
+  for (let i = 0; i < word.length; i++) {
+    const nr = r + dr*i, nc = c + dc*i;
+    if (nr<0||nr>=gridSize||nc<0||nc>=gridSize) return false;
+    if (grid[nr][nc] && grid[nr][nc] !== word[i]) return false;
+  }
+  return true;
+}
+
+function doPlace(word, r, c, [dr, dc]) {
+  const cells = [];
+  for (let i = 0; i < word.length; i++) {
+    const nr = r+dr*i, nc = c+dc*i;
+    grid[nr][nc] = word[i];
+    cells.push(`${nr},${nc}`);
+  }
+  placedWords.push({word, cells});
+}
+
+function fillRandom() {
+  const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  for (let r = 0; r < gridSize; r++)
+    for (let c = 0; c < gridSize; c++)
+      if (!grid[r][c]) grid[r][c] = alpha[Math.floor(Math.random()*26)];
+}
+
+function renderGrid() {
+  const container = document.getElementById('grid');
+  container.innerHTML = '';
+  const table = document.createElement('div');
+  table.style.display = 'grid';
+  table.style.gridTemplateColumns = `repeat(${gridSize}, 30px)`;
+  for (let r = 0; r < gridSize; r++) {
+    for (let c = 0; c < gridSize; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.textContent = grid[r][c];
+      cell.dataset.r = r; cell.dataset.c = c;
+      cell.addEventListener('mousedown', onMouseDown);
+      cell.addEventListener('mouseenter', onMouseEnter);
+      cell.addEventListener('mouseup', onMouseUp);
+      table.appendChild(cell);
+    }
+  }
+  document.addEventListener('mouseup', onMouseUp);
+  container.appendChild(table);
+}
+
+function getCellEl(r, c) {
+  return document.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`);
+}
+
+function onMouseDown(e) {
+  mouseDown = true;
+  const r = parseInt(e.target.dataset.r), c = parseInt(e.target.dataset.c);
+  startCell = {r, c};
+  currentPath = [`${r},${c}`];
+  clearHighlight();
+  e.target.classList.add('selected');
+  e.preventDefault();
+}
+
+function onMouseEnter(e) {
+  if (!mouseDown || !startCell) return;
+  const r = parseInt(e.target.dataset.r), c = parseInt(e.target.dataset.c);
+  clearHighlight();
+  currentPath = getLinePath(startCell.r, startCell.c, r, c);
+  for (const key of currentPath) {
+    const [cr, cc] = key.split(',').map(Number);
+    const el = getCellEl(cr, cc);
+    if (el && !foundCells.has(key)) el.classList.add('selected');
+  }
+}
+
+function onMouseUp(e) {
+  if (!mouseDown) return;
+  mouseDown = false;
+  if (!startCell || currentPath.length < 2) { clearHighlight(); startCell = null; return; }
+  checkMatch();
+  clearHighlight();
+  startCell = null; currentPath = [];
+}
+
+function getLinePath(r1, c1, r2, c2) {
+  const dr = Math.sign(r2-r1), dc = Math.sign(c2-c1);
+  if (dr === 0 && dc === 0) return [`${r1},${c1}`];
+  const path = [];
+  let r = r1, c = c1;
+  const steps = Math.max(Math.abs(r2-r1), Math.abs(c2-c1));
+  for (let i = 0; i <= steps; i++) {
+    path.push(`${r},${c}`);
+    r += dr; c += dc;
+  }
+  return path;
+}
+
+function checkMatch() {
+  const pathStr = currentPath.join('|');
+  const revPath = [...currentPath].reverse().join('|');
+  for (const {word, cells} of placedWords) {
+    if (foundWords.has(word)) continue;
+    const cellStr = cells.join('|');
+    const revStr = [...cells].reverse().join('|');
+    if (pathStr === cellStr || revPath === cellStr || pathStr === revStr || revPath === revStr) {
+      foundWords.add(word);
+      for (const key of cells) {
+        foundCells.add(key);
+        const [r, c] = key.split(',').map(Number);
+        const el = getCellEl(r, c);
+        if (el) { el.classList.remove('selected'); el.classList.add('found'); }
+      }
+      markWordFound(word);
+      if (foundWords.size === placedWords.length) {
+        clearInterval(timerInterval);
+        document.getElementById('congratsMsg').classList.remove('hidden');
+      }
+      return;
+    }
+  }
+}
+
+function clearHighlight() {
+  document.querySelectorAll('.cell.selected').forEach(el => el.classList.remove('selected'));
+}
+
+function renderWordList() {
+  const div = document.getElementById('wordList');
+  div.innerHTML = '';
+  for (const pw of placedWords) {
+    const el = document.createElement('div');
+    el.className = 'flex items-center gap-2 text-sm';
+    el.id = `word-${pw.word}`;
+    el.innerHTML = `<span class="w-5 text-green-500 font-bold hidden checkmark">✓</span><span class="w-5" aria-hidden="true"></span><span class="word-text font-mono uppercase">${pw.word}</span>`;
+    div.appendChild(el);
+  }
+}
+
+function markWordFound(word) {
+  const el = document.getElementById(`word-${word}`);
+  if (el) {
+    el.querySelector('.checkmark').classList.remove('hidden');
+    el.querySelector('[aria-hidden]').classList.add('hidden');
+    el.querySelector('.word-text').classList.add('line-through', 'text-gray-400');
+  }
+}
+
+function updateTimer() {
+  const m = Math.floor(seconds/60).toString().padStart(2,'0');
+  const s = (seconds%60).toString().padStart(2,'0');
+  document.getElementById('timer').textContent = `${m}:${s}`;
+}
+
+// Auto-generate on load
+document.getElementById('wordInput').value = 'JAVASCRIPT\nPYTHON\nHASKELL\nRUSTLANG\nKOTLIN\nSWIFT\nGOLANG\nELIXIR\nDARTLANG\nELM';
+generatePuzzle();
+</script>
+</body>
+</html>
